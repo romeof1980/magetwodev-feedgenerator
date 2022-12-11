@@ -1,0 +1,5 @@
+This is a public repo for testing purposes.
+I have no claim on the code but be aware that the magento 2 data provider and transformation classes asre loosely
+inspired (or copied if I needed no modificatin) by https://github.com/run-as-root/Magento-2-Google-Shopping-Feed
+
+The file input/output is based on magento default functionalities.

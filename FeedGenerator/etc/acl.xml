@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
+    <acl>
+        <resources>
+            <resource id="Magento_Backend::admin" title="system">
+                <resource id="Magento_Backend::stores" title="system">
+                    <resource id="Magento_Backend::stores_settings" title="system">
+                        <resource id="Magento_Config::config" title="system">
+                            <resource id="MageTwoDev_FeedGenerator::feedgenerator_config" title="MageTwoDev FeedGenerator"/>
+                        </resource>
+                    </resource>
+                </resource>
+            </resource>
+        </resources>
+    </acl>
+</config>

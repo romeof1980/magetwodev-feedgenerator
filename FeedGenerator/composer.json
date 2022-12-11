@@ -1,0 +1,26 @@
+{
+  "name": "magetwodev/feedgenerator",
+  "description": "Feed generator module for Magento 2",
+  "require": {
+    "php": "~7.4|~8.0|~8.1",
+    "magento/catalog": "^104.0.5-p1"
+  },
+  "type": "magento2-module",
+  "version": "1.0.0",
+  "license": "OSL-3.0",
+  "autoload": {
+    "files": [ "registration.php" ],
+    "psr-4": {
+      "MageTwoDev\\MageTwoDev_FeedGenerator\\": ""
+    }
+  },
+  "authors": [
+    {
+      "name": "romeo festi",
+      "email": "romeof1980@gmail.com"
+    }
+  ],
+  "support": {
+    "email": "romeof1980@gmail.com"
+  }
+}

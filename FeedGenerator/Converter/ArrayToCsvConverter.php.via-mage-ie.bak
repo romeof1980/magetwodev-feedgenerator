@@ -1,0 +1,620 @@
+<?php
+
+namespace MageTwoDev\FeedGenerator\Converter;
+
+use Magento\Catalog\Model\Product\LinkTypeProvider;
+use Magento\CatalogImportExport\Model\Import\Product as ImportProduct;
+use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Stdlib\DateTime\DateTime;
+use Magento\ImportExport\Model\Export\Adapter\AbstractAdapter;
+use Magento\ImportExport\Model\Import;
+use Magento\Store\Model\Store;
+use MageTwoDev\FeedGenerator\Model\Export\RowCustomizer\Composite;
+use Psr\Log\LoggerInterface;
+use Magento\ImportExport\Model\Export\ConfigInterface;
+use Magento\ImportExport\Model\Export\Adapter\Factory as ExportAdapterFactory;
+
+
+class ArrayToCsvConverter
+{
+
+    //private DateTime $dateTime;
+    private $rowCustomizer;
+
+    private $logger;
+
+    /**
+     * Source model.
+     *
+     * @var AbstractAdapter
+     */
+    protected $writer;
+    protected $headerColumns = [];
+    protected $fieldsMap = [
+        'image' => 'base_image',
+        'image_label' => "base_image_label",
+        'thumbnail' => 'thumbnail_image',
+        'thumbnail_label' => 'thumbnail_image_label',
+        //self::COL_MEDIA_IMAGE => 'additional_images',
+        '_media_image_label' => 'additional_image_labels',
+        self::COL_STORE => 'store_view_code',
+        self::COL_ATTR_SET => 'attribute_set_code',
+        //self::COL_TYPE => 'product_type',
+        //self::COL_CATEGORY => 'categories',
+        self::COL_PRODUCT_WEBSITES => 'product_websites',
+        'status' => 'product_online',
+        'news_from_date' => 'new_from_date',
+        'news_to_date' => 'new_to_date',
+        'options_container' => 'display_product_options_in',
+        'minimal_price' => 'map_price',
+        'msrp' => 'msrp_price',
+        'msrp_enabled' => 'map_enabled',
+        'special_from_date' => 'special_price_from_date',
+        'special_to_date' => 'special_price_to_date',
+        'min_qty' => 'out_of_stock_qty',
+        'backorders' => 'allow_backorders',
+        'min_sale_qty' => 'min_cart_qty',
+        'max_sale_qty' => 'max_cart_qty',
+        'notify_stock_qty' => 'notify_on_stock_below',
+        'meta_keyword' => 'meta_keywords',
+        'tax_class_id' => 'tax_class_name',
+    ];
+
+    protected $exportMainAttrCodes = [
+        self::COL_SKU,
+        'name',
+        'description',
+        //'short_description',
+        //'weight',
+        //'product_online',
+        //'tax_class_name',
+        //'visibility',
+        //'price',
+        //'special_price',
+        //'special_price_from_date',
+        //'special_price_to_date',
+        'url_key',
+        //'meta_title',
+        //'meta_keywords',
+        //'meta_description',
+        'base_image',
+        //'base_image_label',
+        //'small_image',
+        //'small_image_label',
+        //'thumbnail_image',
+        //'thumbnail_image_label',
+        //'swatch_image',
+        //'swatch_image_label',
+        //'created_at',
+        //'updated_at',
+        //'new_from_date',
+        //'new_to_date',
+        //'display_product_options_in',
+        //'map_price',
+        //'msrp_price',
+        //'map_enabled',
+        //'special_price_from_date',
+        //'special_price_to_date',
+        //'gift_message_available',
+        //'custom_design',
+        //'custom_design_from',
+        //'custom_design_to',
+        //'custom_layout_update',
+        //'page_layout',
+        //'product_options_container',
+        //'msrp_price',
+        //'msrp_display_actual_price_type',
+        //'map_enabled',
+        //'country_of_manufacture',
+        //'map_price',
+        //'display_product_options_in',
+    ];
+
+    private $imageLabelAttributes = [
+        'base_image_label',
+        //'small_image_label',
+        //'thumbnail_image_label',
+        //'swatch_image_label',
+    ];
+    protected $websiteIdToCode = [];
+
+    /**
+     * Provider of product link types
+     *
+     * @var LinkTypeProvider
+     */
+    protected $linkTypeProvider;
+
+    protected $parameters = [];
+
+    protected $storeIdToCode = [];
+    public const COL_STORE = '_store';
+    public const COL_ATTR_SET = '_attribute_set';
+    public const COL_PRODUCT_WEBSITES = '_product_websites';
+    public const COL_SKU = 'sku';
+    public const COL_ADDITIONAL_ATTRIBUTES = 'additional_attributes';
+    public const COL_TYPE = '_type';
+
+    public const COL_CATEGORY = '_category';
+
+    protected $rootCategories = [];
+
+    protected $exportConfig;
+
+    protected $exportAdapterFac;
+
+    protected $data = [];
+
+    const FILE_FORMAT = 'csv';
+
+    private $exportDataCollection;
+
+    /**
+     * Items per page for collection limitation
+     *
+     * @var int|null
+     */
+    protected $itemsPerPage = null;
+
+
+    /**
+     * @param Composite $rowCustomizer
+     * @param LoggerInterface $logger
+     * @param ConfigInterface $exportConfig
+     * @param ExportAdapterFactory $exportAdapterFac
+     */
+    public function __construct(
+        //DateTime $dateTime,
+        Composite $rowCustomizer,
+        LoggerInterface $logger,
+        ConfigInterface $exportConfig,
+        ExportAdapterFactory $exportAdapterFac
+    )
+    {
+        //$this->dateTime = $dateTime;
+        $this->rowCustomizer = $rowCustomizer;
+        $this->logger = $logger;
+        $this->exportConfig = $exportConfig;
+        $this->exportAdapterFac = $exportAdapterFac;
+    }
+
+
+    /**
+     * @throws LocalizedException
+     */
+    public function convertToCsv(array $productData){
+        //Execution time may be very long
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction
+        set_time_limit(0);
+
+        $fileFormat = self::FILE_FORMAT;
+        $this->data['file_format'] = $fileFormat;
+        $writer = $this->getWriter();
+
+        //$page = 0;
+        foreach ($productData as $prodRow) {
+            $i = 1;
+            // ++$page;     //not a paginated collection
+            //$exportData = $this->getExportData($productData); //todo: skipping this "data-normalization" for now: setting header cols directly below
+            //$this->exportDataCollection = $productData;
+            //$this->paginateCollection($page, $this->getItemsPerPage());       //romeof1980: not working against a collection here: working against an array
+
+            if ($i == 1) {
+                $this->setHeaderColumns($customOption = []);
+                $writer->setHeaderCols($this->_getHeaderColumns());
+            }
+            $writer->writeRow($this->_customFieldsMapping($prodRow));
+            /*if ($productData->getCurPage() >= $productData->getLastPageNumber()) {
+                break;
+            }*/
+            $i++;
+        }
+        return $writer->getContents();
+    }
+
+    /**
+     * Set page and page size to collection
+     *
+     * @param int $page
+     * @param int $pageSize
+     * @return void
+     */
+    /*protected function paginateCollection($page, $pageSize)
+    {
+        $this->exportDataCollection->setPage($page, $pageSize);
+    }*/
+
+    /**
+     * Get items per page
+     *
+     * @return int
+     */
+    /*protected function getItemsPerPage()
+    {
+        if ($this->itemsPerPage === null) {
+            $memoryLimitConfigValue = trim(ini_get('memory_limit'));
+            $lastMemoryLimitLetter = strtolower($memoryLimitConfigValue[strlen($memoryLimitConfigValue) - 1]);
+            $memoryLimit = (int) $memoryLimitConfigValue;
+            switch ($lastMemoryLimitLetter) {
+                case 'g':
+                    $memoryLimit *= 1024;
+                // fall-through intentional
+                // no break
+                case 'm':
+                    $memoryLimit *= 1024;
+                // fall-through intentional
+                // no break
+                case 'k':
+                    $memoryLimit *= 1024;
+                    break;
+                default:
+                    // minimum memory required by Magento
+                    $memoryLimit = 250000000;
+            }
+
+            // Tested one product to have up to such size
+            $memoryPerProduct = 500000;
+            // Decrease memory limit to have supply
+            $memoryUsagePercent = 0.8;
+            // Minimum Products limit
+            $minProductsLimit = 500;
+            // Maximal Products limit
+            $maxProductsLimit = 5000;
+
+            $this->itemsPerPage = (int)(
+                ($memoryLimit * $memoryUsagePercent - memory_get_usage(true)) / $memoryPerProduct
+            );
+            if ($this->itemsPerPage < $minProductsLimit) {
+                $this->itemsPerPage = $minProductsLimit;
+            }
+            if ($this->itemsPerPage > $maxProductsLimit) {
+                $this->itemsPerPage = $maxProductsLimit;
+            }
+        }
+        return $this->itemsPerPage;
+    }*/
+
+    protected function getExportData(array $productData){
+
+        try {
+            //$this->rowCustomizer->prepareData(
+                //$this->_prepareEntityCollection($this->entityCollectionFactory->create()),
+                //$productData
+            //);
+
+            //$rawData = $productData;
+            $multirawData = $productData;
+
+            $this->setHeaderColumns($multirawData['customOptionsData'], /*$stockItemRows*/);
+
+            $rawData = $multirawData;
+            foreach ($rawData as $productId => $productData) {
+                foreach ($productData as $storeId => $dataRow) {
+                    if ($storeId == Store::DEFAULT_STORE_ID && isset($stockItemRows[$productId])) {
+                        // phpcs:ignore Magento2.Performance.ForeachArrayMerge
+                        $dataRow = array_merge($dataRow, $stockItemRows[$productId]);
+                    }
+                    $this->updateGalleryImageData($dataRow, $rawData);
+                    $this->appendMultirowData($dataRow, $multirawData);
+                    if ($dataRow) {
+                        $exportData[] = $dataRow;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            $this->logger->critical($e);
+            }
+
+        return $exportData;
+    }
+
+    /**
+     * @throws LocalizedException
+     */
+    public function getWriter()
+    {
+        if (!$this->writer) {
+            $this->_getWriter();
+            if (!$this->writer) {
+                throw new \Magento\Framework\Exception\LocalizedException(__('Please specify the writer.'));
+            }
+        }
+        return $this->writer;
+    }
+
+    /*public function setWriter(AbstractAdapter $writer)
+    {
+        $this->writer = $writer;    //todo: redundant: already set
+    }*/
+
+    protected function _getWriter()
+    {
+        if (!$this->writer) {
+            $fileFormats = $this->exportConfig->getFileFormats();
+
+            if (isset($fileFormats[$this->getFileFormat()])) {
+                try {
+                    $this->writer = $this->exportAdapterFac->create($fileFormats[$this->getFileFormat()]['model']);
+                } catch (\Exception $e) {
+                    $this->logger->critical($e);
+                    throw new \Magento\Framework\Exception\LocalizedException(
+                        __('Please enter a correct entity model.')
+                    );
+                }
+                if (!$this->writer instanceof \Magento\ImportExport\Model\Export\Adapter\AbstractAdapter) {
+                    throw new \Magento\Framework\Exception\LocalizedException(
+                        __(
+                            'The adapter object must be an instance of %1.',
+                            \Magento\ImportExport\Model\Export\Adapter\AbstractAdapter::class
+                        )
+                    );
+                }
+            } else {
+                throw new \Magento\Framework\Exception\LocalizedException(__('Please correct the file format.'));
+            }
+        }
+        return $this->writer;
+    }
+
+    public function getFileFormat()
+    {
+        if (empty($this->data['file_format'])) {
+            throw new \Magento\Framework\Exception\LocalizedException(__('We can\'t identify this file format.'));
+        }
+        return $this->data['file_format'];
+    }
+
+    public function _getHeaderColumns()
+    {
+        return $this->_customHeadersMapping($this->rowCustomizer->addHeaderColumns($this->headerColumns));
+    }
+
+    protected function _customHeadersMapping($rowData)
+    {
+        foreach ($rowData as $key => $fieldName) {
+            if (isset($this->_fieldsMap[$fieldName])) {
+                $rowData[$key] = $this->_fieldsMap[$fieldName];
+            }
+        }
+        return $rowData;
+    }
+
+    protected function setHeaderColumns($customOptionsData, /*$stockItemRows*/)
+    {
+        $exportAttributes = (
+            array_key_exists("skip_attr", $this->parameters) && count($this->parameters["skip_attr"])
+        ) ?
+            array_intersect(
+                $this->getExportMainAttrCodes(),
+                //todo romeof1980: skipping the following array merge for now: probably not needed
+                /*array_merge(
+                    $this->_customHeadersMapping($this->getExportAttrCodes()),
+                    $this->getNonSystemAttributes()
+                )*/
+            ) :
+            $this->getExportMainAttrCodes();
+
+        if (!$this->headerColumns) {
+            $this->headerColumns = array_merge(
+                [
+                    self::COL_SKU,
+                    self::COL_STORE,
+                    self::COL_ATTR_SET,
+                    //self::COL_TYPE,
+                    //self::COL_CATEGORY,
+                    self::COL_PRODUCT_WEBSITES,
+                ],
+                $exportAttributes,
+                [self::COL_ADDITIONAL_ATTRIBUTES],
+                /*reset($stockItemRows) ? array_keys(end($stockItemRows)) : [],
+                [
+                    'related_skus',
+                    'related_position',
+                    'crosssell_skus',
+                    'crosssell_position',
+                    'upsell_skus',
+                    'upsell_position',
+                    'additional_images',
+                    'additional_image_labels',
+                    'hide_from_product_page',
+                    'custom_options'
+                ]*/
+            );
+        }
+    }
+
+    protected function _customFieldsMapping($rowData)
+    {
+        foreach ($this->fieldsMap as $systemFieldName => $fileFieldName) {
+            if (isset($rowData[$systemFieldName])) {
+                $rowData[$fileFieldName] = $rowData[$systemFieldName];
+                unset($rowData[$systemFieldName]);
+            }
+        }
+        return $rowData;
+    }
+
+    protected function getExportMainAttrCodes()
+    {
+        return $this->exportMainAttrCodes;
+    }
+
+    private function updateGalleryImageData(&$dataRow, $rawData)
+    {
+        $storeId = $dataRow['store_id'];
+        $productId = $dataRow['product_id'];
+        foreach ($this->imageLabelAttributes as $imageLabelCode) {
+            $imageAttributeCode = str_replace('_label', '', $imageLabelCode);
+            if ($storeId != Store::DEFAULT_STORE_ID
+                && isset($dataRow[$imageLabelCode])
+                && $dataRow[$imageLabelCode]
+                && (!isset($dataRow[$imageAttributeCode]) || !$dataRow[$imageAttributeCode])
+            ) {
+                $dataRow[$imageAttributeCode] = $rawData[$productId][Store::DEFAULT_STORE_ID][$imageAttributeCode];
+            }
+        }
+    }
+
+    private function appendMultirowData(&$dataRow, $multiRawData)
+    {
+        $productId = $dataRow['product_id'];
+        $productLinkId = $dataRow['product_link_id'];
+        $storeId = $dataRow['store_id'];
+        $sku = $dataRow[self::COL_SKU];
+        $type = $dataRow[self::COL_TYPE];
+        $attributeSet = $dataRow[self::COL_ATTR_SET];
+
+        unset($dataRow['product_id']);
+        unset($dataRow['product_link_id']);
+        unset($dataRow['store_id']);
+        unset($dataRow[self::COL_SKU]);
+        unset($dataRow[self::COL_STORE]);
+        unset($dataRow[self::COL_ATTR_SET]);
+        unset($dataRow[self::COL_TYPE]);
+
+        if (Store::DEFAULT_STORE_ID == $storeId) {
+            $this->updateDataWithCategoryColumns($dataRow, $multiRawData['rowCategories'], $productId);
+            if (!empty($multiRawData['rowWebsites'][$productId])) {
+                $websiteCodes = [];
+                foreach ($multiRawData['rowWebsites'][$productId] as $productWebsite) {
+                    $websiteCodes[] = $this->websiteIdToCode[$productWebsite];
+                }
+                $dataRow[self::COL_PRODUCT_WEBSITES] =
+                    implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $websiteCodes);
+                $multiRawData['rowWebsites'][$productId] = [];
+            }
+            if (!empty($multiRawData['mediaGallery'][$productLinkId])) {
+                $additionalImages = [];
+                $additionalImageLabels = [];
+                $additionalImageIsDisabled = [];
+                foreach ($multiRawData['mediaGallery'][$productLinkId] as $mediaItem) {
+                    if ((int)$mediaItem['_media_store_id'] === Store::DEFAULT_STORE_ID) {
+                        $additionalImages[] = $mediaItem['_media_image'];
+                        $additionalImageLabels[] = $mediaItem['_media_label'];
+
+                        if ($mediaItem['_media_is_disabled'] == true) {
+                            $additionalImageIsDisabled[] = $mediaItem['_media_image'];
+                        }
+                    }
+                }
+                $dataRow['additional_images'] =
+                    implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $additionalImages);
+                $dataRow['additional_image_labels'] =
+                    implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $additionalImageLabels);
+                $dataRow['hide_from_product_page'] =
+                    implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $additionalImageIsDisabled);
+                $multiRawData['mediaGallery'][$productLinkId] = [];
+            }
+            foreach ($this->linkTypeProvider->getLinkTypes() as $linkTypeName => $linkId) {
+                if (!empty($multiRawData['linksRows'][$productLinkId][$linkId])) {
+                    $colPrefix = $linkTypeName . '_';
+
+                    $associations = [];
+                    foreach ($multiRawData['linksRows'][$productLinkId][$linkId] as $linkData) {
+                        if ($linkData['default_qty'] !== null) {
+                            $skuItem = $linkData['sku'] . ImportProduct::PAIR_NAME_VALUE_SEPARATOR .
+                                $linkData['default_qty'];
+                        } else {
+                            $skuItem = $linkData['sku'];
+                        }
+                        $associations[$skuItem] = $linkData['position'];
+                    }
+                    $multiRawData['linksRows'][$productLinkId][$linkId] = [];
+                    asort($associations);
+                    $dataRow[$colPrefix . 'skus'] =
+                        implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, array_keys($associations));
+                    $dataRow[$colPrefix . 'position'] =
+                        implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, array_values($associations));
+                }
+            }
+            $dataRow = $this->rowCustomizer->addData($dataRow, $productId);
+        } else {
+            $additionalImageIsDisabled = [];
+            if (!empty($multiRawData['mediaGallery'][$productLinkId])) {
+                foreach ($multiRawData['mediaGallery'][$productLinkId] as $mediaItem) {
+                    if ((int)$mediaItem['_media_store_id'] === $storeId) {
+                        if ($mediaItem['_media_is_disabled'] == true) {
+                            $additionalImageIsDisabled[] = $mediaItem['_media_image'];
+                        }
+                    }
+                }
+            }
+            if ($additionalImageIsDisabled) {
+                $dataRow['hide_from_product_page'] =
+                    implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $additionalImageIsDisabled);
+            }
+        }
+
+        if (!empty($this->collectedMultiselectsData[$storeId][$productId])) {
+            foreach (array_keys($this->collectedMultiselectsData[$storeId][$productId]) as $attrKey) {
+                if (!empty($this->collectedMultiselectsData[$storeId][$productId][$attrKey])) {
+                    $dataRow[$attrKey] = implode(
+                        Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR,
+                        $this->collectedMultiselectsData[$storeId][$productId][$attrKey]
+                    );
+                }
+            }
+        }
+
+        if (!empty($multiRawData['customOptionsData'][$productLinkId][$storeId])) {
+            $shouldBeMerged = true;
+            $customOptionsRows = $multiRawData['customOptionsData'][$productLinkId][$storeId];
+
+            if ($storeId != Store::DEFAULT_STORE_ID
+                && !empty($multiRawData['customOptionsData'][$productLinkId][Store::DEFAULT_STORE_ID])
+            ) {
+                $defaultCustomOptions = $multiRawData['customOptionsData'][$productLinkId][Store::DEFAULT_STORE_ID];
+                if (!array_diff($defaultCustomOptions, $customOptionsRows)) {
+                    $shouldBeMerged = false;
+                }
+            }
+
+            if ($shouldBeMerged) {
+                $multiRawData['customOptionsData'][$productLinkId][$storeId] = [];
+                $customOptions = implode(ImportProduct::PSEUDO_MULTI_LINE_SEPARATOR, $customOptionsRows);
+                $dataRow = array_merge($dataRow, ['custom_options' => $customOptions]);
+            }
+        }
+
+        if (empty($dataRow)) {
+            return null;
+        } elseif ($storeId != Store::DEFAULT_STORE_ID) {
+            $dataRow[self::COL_STORE] = $this->storeIdToCode[$storeId];
+        }
+        $dataRow[self::COL_SKU] = $sku;
+        $dataRow[self::COL_ATTR_SET] = $attributeSet;
+        $dataRow[self::COL_TYPE] = $type;
+
+        return $dataRow;
+    }
+
+    protected function updateDataWithCategoryColumns(&$dataRow, &$rowCategories, $productId) : bool
+    {
+        if (!isset($rowCategories[$productId])) {
+            return false;
+        }
+        $categories = [];
+        foreach ($rowCategories[$productId] as $categoryId) {
+            $categoryPath = $this->rootCategories[$categoryId];
+            if (isset($this->_categories[$categoryId])) {
+                $categoryPath .= '/' . $this->_categories[$categoryId];
+            }
+            $categories[] = $categoryPath;
+        }
+        $dataRow[self::COL_CATEGORY] = implode(Import::DEFAULT_GLOBAL_MULTI_VALUE_SEPARATOR, $categories);
+        unset($rowCategories[$productId]);
+
+        return true;
+    }
+
+    /*protected function _prepareEntityCollection(\Magento\Eav\Model\Entity\Collection\AbstractCollection $collection)
+    {
+        $exportFilter = !empty($this->_parameters[\Magento\ImportExport\Model\Export::FILTER_ELEMENT_GROUP]) ?
+            $this->_parameters[\Magento\ImportExport\Model\Export::FILTER_ELEMENT_GROUP] : [];
+
+        $collection = $this->filter->filter($collection, $exportFilter);
+
+        return parent::_prepareEntityCollection($collection);
+    }*/
+
+}

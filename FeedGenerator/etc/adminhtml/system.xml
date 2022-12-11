@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="feedgenerator" translate="label" sortOrder="1000" showInDefault="1" showInWebsite="1" showInStore="1">
+            <class>separator-top</class>
+            <label>Feed Generator</label>
+            <tab>catalog</tab>
+            <resource>MageTwoDev_FeedGenerator::feedgenerator_config</resource>
+            <group id="general" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                <label>General Configuration</label>
+                <field id="enabled" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label>Module Enable</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <!-- configure here source (dropdown multiselect?) of types of feed to be generated-->
+                <!-- configure logs? (virtual, see di.xml) -->
+                <!-- configure here crons for feed type -->
+                <field id="category_whitelist"
+                       translate="label"
+                       type="multiselect"
+                       sortOrder="1"
+                       showInDefault="1"
+                       showInStore="1"
+                       showInWebsite="1"
+                       canRestore="1">
+                    <depends>
+                        <field id="feedgenerator/general/enabled">1</field>
+                    </depends>
+                    <label>Category Whitelist: only selected will be included in feed generation.</label>
+                    <tooltip>Only selected categories will be included in feed generation.</tooltip>
+                    <source_model>MageTwoDev\FeedGenerator\SourceModel\Category</source_model>
+                </field>
+                <field id="category_blacklist"
+                       translate="label"
+                       type="multiselect"
+                       sortOrder="1"
+                       showInDefault="1"
+                       showInStore="1"
+                       showInWebsite="1"
+                       canRestore="1">
+                    <depends>
+                        <field id="feedgenerator/general/enabled">1</field>
+                    </depends>
+                    <label>Category Blacklist: selected will be excluded from feed generation</label>
+                    <tooltip>Selected categories will be excluded from feed generation. Blacklist has higher priority than whitelist</tooltip>
+                    <source_model>MageTwoDev\FeedGenerator\SourceModel\Category</source_model>
+                    <can_be_empty>1</can_be_empty>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>
