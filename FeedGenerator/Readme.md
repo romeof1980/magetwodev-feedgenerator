@@ -29,7 +29,7 @@ credits: https://github.com/run-as-root/Magento-2-Google-Shopping-Feed/blob/main
 20221209 18:30-21:00 (2,5hrs)
 20221210 18:30-21:30 (3 hrs)
 20221211 9:45-11:45 (2hrs)
-20221211 16:15-
+20221211 16:15-19:15 (3hrs)
 
 ## todos:
 - IMPORTANT: implement cache for product collection
